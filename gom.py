@@ -11,64 +11,71 @@ from github_org import GithubOrganizationManager as OrgMgr
 
 
 def usage():
-    print"""
-Usage %s ORGANIZATION ACTION [OPTION]...
+    print("""
+    Usage {} ORGANIZATION ACTION [OPTION]...
+    ORGANIZATION is the name of the Github organization to be managed. You should
+    have a configuration file named 'ORGANIZATION-conf.yml' in the working
+    directory.
+    ACTIONS
+    c, create-teams CSV     creates teams and members from the specified CSV file
+    d, delete-teams PREFIX  delete all teams and associated repos that have a
+                            name starting with PREFIX
+    l, list-repos           prints all repositories in the organization
+    x, export-teams PREFIX  export repositories starting with PREFIX and members
+                            as a CSV file
+    """.format(sys.argv[0]))
 
-ORGANIZATION is the name of the Github organization to be managed. You should
-  have a configuration file named 'ORGANIZATION-conf.yml' in the working
-  directory.
+#     print"""
+# Usage %s ORGANIZATION ACTION [OPTION]...
 
-ACTIONS
+# ORGANIZATION is the name of the Github organization to be managed. You should
+#   have a configuration file named 'ORGANIZATION-conf.yml' in the working
+#   directory.
 
-  c, create-teams CSV    creates teams and members from the specified CSV file
-  p, purge-teams PREFIX  delete all teams and associated repos that have a
-                         name starting with PREFIX
-     delete-teams TXT    deletes all teams enumerated in the specified TXT file
-     delete-repos TXT    deletes all repos enumerated in the specified TXT file
-  l, list-repos          prints all repositories in the organization
-  t, list-teams          prints all teams
-  x, export-teams PREFIX export repositories starting with PREFIX and members
-                         as a CSV file
+# ACTIONS
 
-"""[1:-1] % sys.argv[0]
+#   c, create-teams CSV     creates teams and members from the specified CSV file
+#   d, delete-teams PREFIX  delete all teams and associated repos that have a
+#                           name starting with PREFIX
+#   l, list-repos           prints all repositories in the organization
+#   x, export-teams PREFIX  export repositories starting with PREFIX and members
+#                           as a CSV file
+
+#"""[1:-1] % sys.argv[0]
 
 
-def add_members_to_team(manager, options):
-    """Adds members from a text file to a team"""
-    if len(options) < 2:
-        print "No team/member list specified!"
-        usage
-        sys.exit(1)
-    team_name = options[0]
-    user_file = options[1]
-    print "Fetching users from %s." % user_file
-    user_names = read_users_from_file(user_file)
-    team = manager.get_team_by_name(team_name)
-    manager.add_members_to_team(team, user_names)
+
+def list_repos(manager):
+    """List repositories in the organization."""
+    repos = manager._organization.get_repos()
+    for repo in repos:
+        print (repo.name)
 
 
 def create_teams(manager, options):
     """Create new teams and repositories"""
     if len(options) < 1:
-        print "No user file specified!"
+        print ("No user file specified!")
         usage()
         sys.exit(1)
 
     user_file = options[0]
 
-    print "Fetching users and teams from %s. This may take a while." \
-        % user_file
-    print "Failed users (if any):"
+    # print "Fetching users and teams from %s. This may take a while." \
+    #     % user_file
+    # print "Failed users (if any):"]
+    print("Fetching users and teams from {}. This may take a while.".format(user_file))
+    print("Failed users (if any):")
     teams = manager.read_teams_from_csv(user_file)
 
-    print "Adding teams to organization"
+    print ("Adding teams to organization")
     manager.add_teams_to_org(teams)
 
 
 def delete_repos(manager, options):
     """Delete repositories enumerated in the specified text file"""
     if len(options) < 1:
-        print "No file containing repo names specified!"
+        print ("No file containing repo names specified!")
         usage()
         sys.exit(1)
 
@@ -78,12 +85,25 @@ def delete_repos(manager, options):
 def delete_teams(manager, options):
     """Delete teams enumerated in the specified text file"""
     if len(options) < 1:
-        print "No file containing team names specified!"
+        print ("No name prefix of teams to delete specified!")
         usage()
         sys.exit(1)
 
+    #manager.delete_teams_in_file(options[0])
     manager.delete_teams_in_file(options[0])
 
+def invite(manager, options):
+    """
+    Invite the users specified in a text file to the organization
+    """
+    if len(options) < 1:
+        print("No file containing user list specified!")
+        usage()
+        sys.exit(1)
+    user_file = options[0]
+    print("Fetching users from %s." % user_file)
+    users = read_users_from_file(user_file)
+    manager.invite(users)
 
 def export_repos(manager, options):
     """
@@ -91,68 +111,50 @@ def export_repos(manager, options):
     CSV file
     """
     if len(options) < 1:
-        print "No name prefix of teams to export specified!"
+        print ("No name prefix of teams to export specified!")
         usage()
         sys.exit(1)
     prefix = options[0]
     manager.export_repos_and_contributors(prefix)
 
 
-def invite(manager, options):
-    """
-    Invite the users specified in a text file to the organization
-    """
-
-    if len(options) < 1:
-        print "No file containing user list specified!"
+def add_members_to_team(manager, options):
+    """Adds members from a text file to a team"""
+    if len(options) < 2:
+        print ("No team/member list specified!")
         usage
         sys.exit(1)
-    user_file = options[0]
-    print "Fetching users from %s." % user_file
-    users = read_users_from_file(user_file)
-    manager.invite(users)
+    team_name = options[0]
+    user_file = options[1]
+    #print "Fetching users from %s." % user_file
+    print("Fetching users from %s." % user_file)
 
-
-def list_repos(manager):
-    """
-    List repositories in the organization.
-    """
-    repos = manager._organization.get_repos()
-    print "name,size,updated_at,pushed_at"
-    for repo in repos:
-        print "%s,%s,%s,%s" \
-                % (repo.name, repo.size, repo.updated_at, repo.pushed_at)
-
+    users = manager.read_members_from_txt(user_file)
+    manager.add_members_to_team(team_name, users)
 
 def list_teams(manager):
     """
     List teams in the organization.
     """
     teams = manager._organization.get_teams()
-    print "team,id,members_count,repos_count"
-
+    print("team,id,members_count,repos_count")
     for team in teams:
-        print "%s,%s,%s,%s" % (team.name, team.id,
-                               team.members_count, team.repos_count)
-
+        print("%s,%s,%s,%s" % (team.name, team.id, team.members_count, team.repos_count))
 
 def purge_teams(manager, options):
     """
     Delete teams and their repos starting with the specified prefix
     """
     if len(options) < 1:
-        print "No name prefix of teams to delete specified!"
+        print("No name prefix of teams to delete specified!")
         usage()
         sys.exit(1)
-
     prefix = options[0]
     manager.delete_teams_and_repos(prefix)
-
 
 def read_users_from_file(file_name):
     """
     Reads user names from a file and returns them as a list of Strings
-
     :param str file_name: the name of a file containing one username per line
     :rtype: list of strings
     """
@@ -160,8 +162,7 @@ def read_users_from_file(file_name):
         with open(file_name) as user_file:
             users = [name.rstrip() for name in user_file.readlines()]
     except IOError:
-        print "Couldn't find file %s" % file_name
-
+        print("Couldn't find file %s" % file_name)
     return users
 
 #
@@ -170,7 +171,7 @@ def read_users_from_file(file_name):
 
 
 if len(sys.argv) < 3:
-    print "Not enough arguments, expected at least 2"
+    print ("Not enough arguments, expected at least 2")
     usage()
     sys.exit(2)
 
@@ -191,6 +192,8 @@ elif action == "delete-repos":
     delete_repos(manager, options)
 elif action == "delete-teams" or action == "d":
     delete_teams(manager, options)
+elif action == "delete-teams" or action == "d":
+    delete_teams(manager, options)
 elif action == "invite" or action == "i":
     invite(manager, options)
 elif action == "export-teams" or action == "x":
@@ -202,6 +205,6 @@ elif action == "list-teams" or action == "t":
 elif action == "purge-teams" or action == "p":
     purge_teams(manager, options)
 else:
-    print "Unknown action: %s" % action
+    print ("Unknown action: %s" % action)
     usage()
     sys.exit(1)

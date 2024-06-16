@@ -10,13 +10,20 @@ from github import UnknownObjectException
 
 
 class GithubOrganizationManager:
-    __slots__ = []
+    __slots__ = ["_config", "_github", "_organization"]
     MIN_PREFIX_LENGTH = 3
+    # _config = None
+    # _github = None
+    # _organization = None
 
     def __init__(self, organization_name):
-        self._organization_name = organization_name
-        self._config = self.read_config()
-        self._github = Github(self._config['user'], self._config['password'])
+        #self._organization_name = organization_name
+        self._config = self.read_config(organization_name)
+        #self._github = Github(self._config['user'], self._config['password'])
+        if(self._config['token'] != ''):
+            self._github = Github(self._config['token'])
+        else:
+            self._github = Github(self._config['user'], self._config['password'])
         self._organization = \
             self._github.get_organization(self._config['organization'])
 
@@ -35,11 +42,11 @@ class GithubOrganizationManager:
         failed_users = []
         with open(txtfile) as userfile:
             user_names = userfile.readlines()
-        print "Reading users:"
+        print ("Reading users:")
         for name in user_names:
             # strip the \n from the right
             name = name.rstrip()
-            print " - %s" % name
+            print (" - %s" % name)
             # Convert user name into Github NamedUser object
             try:
                 user = self._github.get_user(name)
@@ -47,9 +54,9 @@ class GithubOrganizationManager:
             except UnknownObjectException:
                 failed_users.append(name)
 
-        print "Failed users:"
+        print ("Failed users:")
         for failed_user in failed_users:
-            print " - %s" % failed_user
+            print (" - %s" % failed_user)
 
         return users
 
@@ -89,18 +96,21 @@ class GithubOrganizationManager:
                         # Append user name to existing team member list
                         teams[team_name].append(user)
                 except GithubException:
-                    print "%s,%s" % (login, team_name)
+                    #print "%s,%s" % (login, team_name)
+                    print(f"{login},{team_name}")
 
         return teams
 
-    def read_config(self):
+    def read_config(self, organization_name):
+    #def read_config(self):
         """Read the configuration for this organization.
         The file should be in Yaml format. See ‘org-conf.yml.example’.
         """
-        config_file_name = self._organization_name + "-conf.yml"
+        #config_file_name = self._organization_name + "-conf.yml"
+        config_file_name = organization_name + "-conf.yml"
         try:
             with open(config_file_name) as config_file:
-                config = yaml.load(config_file)
+                config = yaml.safe_load(config_file)
                 return config
         except IOError:
             print("Couldn't load configuration file ‘%s’. "
@@ -117,12 +127,12 @@ class GithubOrganizationManager:
             try:
                 user = self._github.get_user(user_name)
                 if not self._organization.has_in_members(user):
-                    print "%s\t\t1\t\t\tuitgenodigd" % user_name
+                    print ("%s\t\t1\t\t\tuitgenodigd" % user_name)
                     self.add_member_to_org(user)
                 else:
-                    print "%s\t\t\t1\t\treeds lid" % user_name
+                    print ("%s\t\t\t1\t\treeds lid" % user_name)
             except GithubException:
-                print "%s\t1\t\t\t\tgebruiker niet gevonden" % user_name
+                print ("%s\t1\t\t\t\tgebruiker niet gevonden" % user_name)
 
     def add_members_to_team(self, team, user_names):
         """
@@ -138,7 +148,7 @@ class GithubOrganizationManager:
                 user = self._github.get_user(user_name)
                 self.add_member_to_team(team, user)
             except GithubException:
-                print "%s\tgebruiker niet gevonden" % user_name
+                print ("%s\tgebruiker niet gevonden" % user_name)
 
     def add_member_to_org(self, member):
         """
@@ -165,31 +175,41 @@ class GithubOrganizationManager:
         repo_config = self._config['repo_config']
 
         for team_name in sorted(teams.keys()):
-            print "- team: %s\n  repos:" % team_name
+            #print "- team: %s\n  repos:" % team_name
+            print(f"- team: {team_name}\n  repos:")
             team = self._organization.create_team(team_name)
             team.edit(team_name, permission=self._config['repo_access'])
 
             for rname in self.repo_names():
-                repo_name = team_name + rname
-                print "    - %s" % repo_name
+                #repo_name = team_name + rname
+                repo_name = team_name
+                #print "    - %s" % repo_name
+                print(f"    - {repo_name}")
                 repo = self._organization.create_repo(repo_name, **repo_config)
                 team.add_to_repos(repo)
 
-            print "  users:"
+            print ("  users:")
             self.add_members_to_team(team, teams[team_name])
 
-    def add_member_to_team(self, team, member):
+    def add_members_to_team(self, team, members):
+        """Adds the members, a list of NamedUsers, to the team"""
+
+        for member in members:
+            #print "    - %s" % member.login
+            print(f"    - {member.login}")
+            self.__pygithub_add_membership(team, member)
+
+    def __pygithub_add_membership(self, team, member):
         """
-        Adds the specified member, a NamedUser, to the team
+        :calls: `PUT /teams/:id/memberships/:user
+          <http://developer.github.com/v3/orgs/teams>`_
+        :param member: :class:`github.Nameduser.NamedUser`
+        :rtype: None
         """
-        if team.has_in_members(member):
-            print "%s\thad al toegang" % member.login
-        elif not self._organization.has_in_members(member):
-            self.add_member_to_org(member)
-            print "%s\tuitgenodigd" % member.login
-        else:
-            print "%s\ttoegang gegeven" % member.login
-            team.add_to_members(member)
+        assert isinstance(member, github.NamedUser.NamedUser), member
+        headers, data = team._requester.requestJsonAndCheck(
+            "PUT", team.url + "/memberships/" + member._identity
+        )
 
     def get_teams_starting_with(self, prefix):
         teams = []
@@ -216,18 +236,20 @@ class GithubOrganizationManager:
         If the repository does not exist, a warning is printed"""
 
         try:
-            print "Deleting repo: %s" % repo_name
+            print ("Deleting repo: %s" % repo_name)
             repo = self._organization.get_repo(repo_name)
             repo.delete()
-        except GithubException:
-            print u"    Repo ‘%s’ already gone. Ignoring..." % repo_name
+        except:
+            #print u"    Repo ‘%s’ already gone. Ignoring..." % repo_name
+            print(f"    Repo '{repo_name}' already gone. Ignoring...")
 
     def delete_repos(self, repos_to_delete):
         """Delete specified repos. THIS CANNOT BE UNDONE!"""
 
-        print "Deleting repos"
+        print ("Deleting repos")
         for repo in repos_to_delete:
-            print "- %s" % repo.name
+            #print "- %s" % repo.name
+            print(f"- {repo.name}")
             repo.delete()
 
     def delete_repos_in_file(self, txtfile):
@@ -238,21 +260,21 @@ class GithubOrganizationManager:
             repos_to_delete = repofile.readlines()
         repos_to_delete = [repo_name.strip() for repo_name in repos_to_delete]
 
-        print '=' * 80
-        print '!!! WARNING WARNING WARNING !!!'
-        print "This deletes all repos enumerated in file %s" % txtfile
-        print '!!! THIS CANNOT BE UNDONE !!!'
-        print '-' * 80
-        print 'Repos to be deleted:'
-        print ', '.join([repo_name for repo_name in repos_to_delete])
-        print '=' * 80
-        print 'Are you sure you want to do this? [yes/NO]'
+        print ('=' * 80)
+        print ('!!! WARNING WARNING WARNING !!!')
+        print ("This deletes all repos enumerated in file %s" % txtfile)
+        print ('!!! THIS CANNOT BE UNDONE !!!')
+        print ('-' * 80)
+        print ('Repos to be deleted:')
+        print (', '.join([repo_name for repo_name in repos_to_delete]))
+        print ('=' * 80)
+        print ('Are you sure you want to do this? [yes/NO]')
 
         choice = raw_input().lower()
 
         if choice != 'yes':
-            print 'Confirmation failed, bailing out.'
-            print u'  Remark: Type ‘yes’ to confirm, not ‘y’'
+            print ('Confirmation failed, bailing out.')
+            print (u'  Remark: Type ‘yes’ to confirm, not ‘y’')
             return
 
         for repo_name in repos_to_delete:
@@ -263,11 +285,11 @@ class GithubOrganizationManager:
         If the team does not exist, a warning is printed"""
 
         try:
-            print "Deleting team: %s" % team_name
-            team = self._organization.get_team(int(team_name))
+            print ("Deleting team: %s" % team_name)
+            team = self._organization.get_team(team_name)
             team.delete()
         except GithubException:
-            print u"    team ‘%s’ already gone. Ignoring..." % team_name
+            print (u"    team ‘%s’ already gone. Ignoring..." % team_name)
 
     def delete_teams_in_file(self, txtfile):
         """Delete the teams enumerated in the specified text file (one per line).
@@ -277,21 +299,21 @@ class GithubOrganizationManager:
             teams_to_delete = teamfile.readlines()
         teams_to_delete = [team_name.strip() for team_name in teams_to_delete]
 
-        print '=' * 80
-        print '!!! WARNING WARNING WARNING !!!'
-        print "This deletes all teams enumerated in file %s" % txtfile
-        print '!!! THIS CANNOT BE UNDONE !!!'
-        print '-' * 80
-        print 'Teams to be deleted:'
-        print ', '.join([team_name for team_name in teams_to_delete])
-        print '=' * 80
-        print 'Are you sure you want to do this? [yes/NO]'
+        print ('=' * 80)
+        print ('!!! WARNING WARNING WARNING !!!')
+        print ("This deletes all teams enumerated in file %s" % txtfile)
+        print ('!!! THIS CANNOT BE UNDONE !!!')
+        print ('-' * 80)
+        print ('Teams to be deleted:')
+        print (', '.join([team_name for team_name in teams_to_delete]))
+        print ('=' * 80)
+        print ('Are you sure you want to do this? [yes/NO]')
 
-        choice = raw_input().lower()
+        choice = input().lower()
 
         if choice != 'yes':
-            print 'Confirmation failed, bailing out.'
-            print u'  Remark: Type ‘yes’ to confirm, not ‘y’'
+            print ('Confirmation failed, bailing out.')
+            print (u'  Remark: Type ‘yes’ to confirm, not ‘y’')
             return
 
         for team_name in teams_to_delete:
@@ -300,9 +322,10 @@ class GithubOrganizationManager:
     def delete_teams(self, teams_to_delete):
         """Delete specified teams. THIS CANNOT BE UNDONE!"""
 
-        print "Deleting teams"
+        print ("Deleting teams")
         for team in teams_to_delete:
-                print "- %s" % team.name
+                #print "- %s" % team.name
+                print(f"- {team.name}")
                 team.delete()
 
     def delete_teams_and_repos(self, prefix):
@@ -319,27 +342,32 @@ class GithubOrganizationManager:
         repos_to_delete = self.get_repos_starting_with(prefix)
 
         if len(teams_to_delete) == 0 and len(repos_to_delete) == 0:
-            print "No teams or repos start with %s, bailing out" % prefix
+            #print "No teams or repos start with %s, bailing out" % prefix
+            print(f"No teams or repos start with {prefix}, bailing out")
             return
 
-        print '=' * 80
-        print '!!! WARNING WARNING WARNING !!!'
-        print "This deletes all teams starting with prefix %s" % prefix
-        print 'and their repositories from the organization.'
-        print '!!! THIS CANNOT BE UNDONE !!!'
-        print '=' * 80
-        print 'Teams to be deleted:'
-        print ', '.join([team.name for team in teams_to_delete])
-        print '-' * 80
-        print 'Repos to be deleted:'
-        print ', '.join([repo.name for repo in repos_to_delete])
-        print '=' * 80
-        print 'Type in the prefix again to confirm: '
+        #print '=' * 80
+        print('=' * 80)
+        print ('!!! WARNING WARNING WARNING !!!')
+        #print "This deletes all teams starting with prefix %s" % prefix
+        print(f"This deletes all teams starting with prefix {prefix}")
+        print ('and their repositories from the organization.')
+        print ('!!! THIS CANNOT BE UNDONE !!!')
+        print ('=' * 80)
+        print ('Teams to be deleted:')
+        #print ', '.join([team.name for team in teams_to_delete])
+        print(', '.join([team.name for team in teams_to_delete]))
+        print ('-' * 80)
+        print ('Repos to be deleted:')
+        #print ', '.join([repo.name for repo in repos_to_delete])
+        print(', '.join([repo.name for repo in repos_to_delete]))
+        print ('=' * 80)
+        print ('Type in the prefix again to confirm: ')
 
-        choice = raw_input().lower()
+        choice = input().lower()
 
-        if choice != prefix.lower():
-            print 'Confirmation failed, bailing out.'
+        if choice != prefix:
+            print ('Confirmation failed, bailing out.')
             return
 
         self.delete_teams(teams_to_delete)
@@ -349,12 +377,13 @@ class GithubOrganizationManager:
         """Export repos starting with the specfied prefix and contributors in
         CSV format"""
         repos = self.get_repos_starting_with(prefix)
-        print u'repository,login,name,email'
+        print ('repository,login,name,email')
         for repo in repos:
             contributors = repo.get_contributors()
             for contributor in contributors:
-                print u'{0},{1},{2},{3}'.format(
-                        repo.name,
-                        contributor.login,
-                        contributor.name,
-                        contributor.email)
+                #print u'{0},{1},{2},{3}'.format(
+                #        repo.name,
+                #        contributor.login,
+                #        contributor.name,
+                #        contributor.email)
+                print(f"{repo.name},{contributor.login},{contributor.name},{contributor.email}")
